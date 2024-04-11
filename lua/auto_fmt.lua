@@ -5,12 +5,11 @@
 ---@field filter fun(client: vim.lsp.Client): boolean
 local AutoFmtInstance = {}
 
----@class AutoFmtInstanceOptions
----@field enabled boolean
----@field filter fun(client: vim.lsp.Client): boolean
+---@class AutoFmtOptions
+---@field filter? fun(client: vim.lsp.Client): boolean
 
 ---@param bufnr integer
----@param opts? AutoFmtInstanceOptions
+---@param opts? AutoFmtOptions
 AutoFmtInstance.new = function(bufnr, opts)
   vim.validate {
     bufnr = {
@@ -21,20 +20,14 @@ AutoFmtInstance.new = function(bufnr, opts)
       "integer and not 0",
     },
   }
-  ---@type AutoFmtInstanceOptions
+  ---@type AutoFmtOptions
   local default_options = {
-    enabled = true,
-    ---@param _ vim.lsp.Client
-    ---@return boolean
     filter = function(_)
       return true
     end,
   }
-  opts = vim.tbl_extend("force", default_options, opts or {}) --[[@as AutoFmtInstanceOptions]]
-  local self = setmetatable(
-    { bufnr = bufnr, enabled = opts.enabled, filter = opts.filter },
-    { __index = AutoFmtInstance }
-  )
+  opts = vim.tbl_extend("force", default_options, opts or {}) --[[@as AutoFmtOptions]]
+  local self = setmetatable({ bufnr = bufnr, enabled = true, filter = opts.filter }, { __index = AutoFmtInstance })
   if self.enabled then
     self:enable()
   end
@@ -46,7 +39,9 @@ function AutoFmtInstance:enable()
   vim.api.nvim_create_autocmd("BufWritePre", {
     group = self.group,
     callback = function()
-      vim.lsp.buf.format { filter = self.filter }
+      if #vim.lsp.get_clients() > 0 then
+        vim.lsp.buf.format { filter = self.filter }
+      end
     end,
   })
   vim.notify(("[auto_fmt] enable auto formatting on buf: %d"):format(self.bufnr), vim.log.levels.DEBUG)
@@ -60,30 +55,47 @@ function AutoFmtInstance:disable()
 end
 
 ---@class AutoFmt
+---@field private filter fun(client: vim.lsp.Client): boolean
 ---@field private group integer
 ---@field private instances AutoFmtInstance[]
 ---@field private [integer] AutoFmtInstance
 local AutoFmt = {}
 
+---@param opts? AutoFmtOptions
 ---@return AutoFmt
-AutoFmt.new = function()
-  return setmetatable({ instances = {} }, { __index = AutoFmt.__index })
+AutoFmt.new = function(opts)
+  opts = vim.tbl_extend("force", {
+    filter = function(_)
+      return true
+    end,
+  }, opts or {}) --@as AutoFmtOptions
+  local self = setmetatable({ filter = opts.filter, instances = {} }, { __index = AutoFmt.__index })
+  vim.api.nvim_create_autocmd("BufWinEnter", {
+    group = vim.api.nvim_create_augroup("auto_fmt", {}),
+    callback = function()
+      self:on()
+    end,
+    once = true,
+  })
+  return self
 end
 
 ---@param key string|integer
 function AutoFmt:__index(key)
-  return type(key) == "number" and rawget(self, "instances")[key] or rawget(self, key) or rawget(AutoFmt, key)
+  if type(key) == "number" then
+    return rawget(self, "instances")[key]
+  end
+  return rawget(self, key) or rawget(AutoFmt, key)
 end
 
 ---@param bufnr? integer
----@param opts? AutoFmtInstanceOptions
-function AutoFmt:on(bufnr, opts)
+function AutoFmt:on(bufnr)
   local key = self:bufnr(bufnr)
   if self[key] then
     self[key]:disable()
   end
   vim.notify(("[auto_fmt] creating instance for buf: %d"):format(key))
-  self[key] = AutoFmtInstance.new(key, opts)
+  self[key] = AutoFmtInstance.new(key, { filter = self.filter })
 end
 
 ---@param bufnr? integer
@@ -115,23 +127,40 @@ end
 ---@param bufnr? integer
 ---@return integer
 function AutoFmt:bufnr(bufnr)
-  return not bufnr or bufnr == 0 and vim.api.nvim_get_current_buf() or bufnr --[[@as integer]]
+  return (not bufnr or bufnr == 0) and vim.api.nvim_get_current_buf() or bufnr --[[@as integer]]
 end
 
-local auto_fmt = AutoFmt.new()
+---@type AutoFmt?
+local instance
+
+---@return AutoFmt
+local function auto_fmt()
+  if instance then
+    return instance
+  end
+  error "[auto_fmt] call setup() before this"
+end
 
 return {
+  ---@param opts? AutoFmtOptions
+  setup = function(opts)
+    instance = AutoFmt.new(opts)
+  end,
   ---@param bufnr? integer
-  ---@param opts? AutoFmtInstanceOptions
-  on = function(bufnr, opts)
-    auto_fmt:on(bufnr, opts)
+  on = function(bufnr)
+    auto_fmt():on(bufnr)
   end,
   ---@param bufnr? integer
   off = function(bufnr)
-    auto_fmt:off(bufnr)
+    auto_fmt():off(bufnr)
+  end,
+  ---@param bufnr? integer
+  ---@return boolean
+  is_enabled = function(bufnr)
+    return auto_fmt():is_enabled(bufnr)
   end,
   ---@param bufnr? integer
   toggle = function(bufnr)
-    auto_fmt:toggle(bufnr)
+    auto_fmt():toggle(bufnr)
   end,
 }
