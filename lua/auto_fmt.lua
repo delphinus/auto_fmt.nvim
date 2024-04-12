@@ -91,8 +91,14 @@ function AutoFmt:__index(key)
 end
 
 ---@param bufnr? integer
+---@return integer
+local function bufnr_to_key(bufnr)
+  return (not bufnr or bufnr == 0) and vim.api.nvim_get_current_buf() or bufnr --[[@as integer]]
+end
+
+---@param bufnr? integer
 function AutoFmt:on(bufnr)
-  local key = self:bufnr(bufnr)
+  local key = bufnr_to_key(bufnr)
   if self[key] then
     self[key]:disable()
   end
@@ -102,7 +108,7 @@ end
 
 ---@param bufnr? integer
 function AutoFmt:off(bufnr)
-  local key = self:bufnr(bufnr)
+  local key = bufnr_to_key(bufnr)
   if self[key] then
     self[key]:disable()
     self[key] = nil
@@ -111,7 +117,7 @@ end
 
 ---@param bufnr? integer
 function AutoFmt:toggle(bufnr)
-  local key = self:bufnr(bufnr)
+  local key = bufnr_to_key(bufnr)
   if self[key] then
     self:off(key)
   else
@@ -121,15 +127,8 @@ end
 
 ---@return boolean
 function AutoFmt:is_enabled(bufnr)
-  local key = self:bufnr(bufnr)
+  local key = bufnr_to_key(bufnr)
   return self[key] and self[key].enabled or false
-end
-
----@private
----@param bufnr? integer
----@return integer
-function AutoFmt:bufnr(bufnr)
-  return (not bufnr or bufnr == 0) and vim.api.nvim_get_current_buf() or bufnr --[[@as integer]]
 end
 
 ---@type AutoFmt?
