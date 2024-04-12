@@ -1,3 +1,5 @@
+local Methods = require("vim.lsp.protocol").Methods
+
 ---@class AutoFmtInstance
 ---@field bufnr integer
 ---@field enabled boolean
@@ -38,8 +40,9 @@ function AutoFmtInstance:enable()
   self.group = vim.api.nvim_create_augroup(("auto_fmt_%d"):format(self.bufnr), {})
   vim.api.nvim_create_autocmd("BufWritePre", {
     group = self.group,
+    buffer = self.bufnr,
     callback = function()
-      if #vim.lsp.get_clients() > 0 then
+      if #vim.lsp.get_clients { bufnr = self.bufnr, method = Methods.textDocument_formatting } > 0 then
         vim.lsp.buf.format { filter = self.filter }
       end
     end,
@@ -70,12 +73,11 @@ AutoFmt.new = function(opts)
     end,
   }, opts or {}) --@as AutoFmtOptions
   local self = setmetatable({ filter = opts.filter, instances = {} }, { __index = AutoFmt.__index })
-  vim.api.nvim_create_autocmd("BufWinEnter", {
+  vim.api.nvim_create_autocmd("BufRead", {
     group = vim.api.nvim_create_augroup("auto_fmt", {}),
     callback = function()
       self:on()
     end,
-    once = true,
   })
   return self
 end
@@ -131,12 +133,12 @@ function AutoFmt:bufnr(bufnr)
 end
 
 ---@type AutoFmt?
-local instance
+local auto_fmt_obj
 
 ---@return AutoFmt
 local function auto_fmt()
-  if instance then
-    return instance
+  if auto_fmt_obj then
+    return auto_fmt_obj
   end
   error "[auto_fmt] call setup() before this"
 end
@@ -144,7 +146,7 @@ end
 return {
   ---@param opts? AutoFmtOptions
   setup = function(opts)
-    instance = AutoFmt.new(opts)
+    auto_fmt_obj = AutoFmt.new(opts)
   end,
   ---@param bufnr? integer
   on = function(bufnr)
