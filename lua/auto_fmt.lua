@@ -5,10 +5,20 @@ local Methods = require("vim.lsp.protocol").Methods
 ---@field enabled boolean
 ---@field group? integer
 ---@field filter fun(client: vim.lsp.Client): boolean
+---@field verbose boolean
 local AutoFmtInstance = {}
 
 ---@class AutoFmtOptions
 ---@field filter? fun(client: vim.lsp.Client): boolean
+---@field verbose boolean default: true
+
+---@type AutoFmtOptions
+local default_options = {
+  filter = function(_)
+    return true
+  end,
+  verbose = true,
+}
 
 ---@param bufnr integer
 ---@param opts? AutoFmtOptions
@@ -22,14 +32,11 @@ AutoFmtInstance.new = function(bufnr, opts)
       "integer and not 0",
     },
   }
-  ---@type AutoFmtOptions
-  local default_options = {
-    filter = function(_)
-      return true
-    end,
-  }
   opts = vim.tbl_extend("force", default_options, opts or {}) --[[@as AutoFmtOptions]]
-  local self = setmetatable({ bufnr = bufnr, enabled = true, filter = opts.filter }, { __index = AutoFmtInstance })
+  local self = setmetatable(
+    { bufnr = bufnr, enabled = true, filter = opts.filter, verbose = opts.verbose },
+    { __index = AutoFmtInstance }
+  )
   if self.enabled then
     self:enable()
   end
@@ -47,32 +54,36 @@ function AutoFmtInstance:enable()
       end
     end,
   })
-  vim.notify(("[auto_fmt] enable auto formatting on buf: %d"):format(self.bufnr), vim.log.levels.DEBUG)
+  if self.verbose then
+    vim.notify(("[auto_fmt] enable auto formatting on buf: %d"):format(self.bufnr), vim.log.levels.DEBUG)
+  end
 end
 
 function AutoFmtInstance:disable()
   if self.group then
     vim.api.nvim_clear_autocmds { group = self.group }
   end
-  vim.notify(("[auto_fmt] disable auto formatting on buf: %d"):format(self.bufnr), vim.log.levels.DEBUG)
+  if self.verbose then
+    vim.notify(("[auto_fmt] disable auto formatting on buf: %d"):format(self.bufnr), vim.log.levels.DEBUG)
+  end
 end
 
 ---@class AutoFmt
 ---@field private filter fun(client: vim.lsp.Client): boolean
 ---@field private group integer
 ---@field private instances AutoFmtInstance[]
+---@field private verbose boolean
 ---@field private [integer] AutoFmtInstance
 local AutoFmt = {}
 
 ---@param opts? AutoFmtOptions
 ---@return AutoFmt
 AutoFmt.new = function(opts)
-  opts = vim.tbl_extend("force", {
-    filter = function(_)
-      return true
-    end,
-  }, opts or {}) --@as AutoFmtOptions
-  local self = setmetatable({ filter = opts.filter, instances = {} }, { __index = AutoFmt.__index })
+  opts = vim.tbl_extend("force", default_options, opts or {}) --@as AutoFmtOptions
+  local self = setmetatable(
+    { filter = opts.filter, instances = {}, verbose = opts.verbose },
+    { __index = AutoFmt.__index }
+  )
   vim.api.nvim_create_autocmd("BufRead", {
     group = vim.api.nvim_create_augroup("auto_fmt", {}),
     callback = function()
@@ -102,8 +113,10 @@ function AutoFmt:on(bufnr)
   if self[key] then
     self[key]:disable()
   end
-  vim.notify(("[auto_fmt] creating instance for buf: %d"):format(key))
-  self[key] = AutoFmtInstance.new(key, { filter = self.filter })
+  if self.verbose then
+    vim.notify(("[auto_fmt] creating instance for buf: %d"):format(key))
+  end
+  self[key] = AutoFmtInstance.new(key, { filter = self.filter, verbose = self.verbose })
 end
 
 ---@param bufnr? integer
